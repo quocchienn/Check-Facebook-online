@@ -1,5 +1,4 @@
 import os
-from flask import Flask
 import requests
 import asyncio
 from dotenv import load_dotenv

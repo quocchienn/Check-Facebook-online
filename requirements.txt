@@ -1,3 +1,6 @@
-python-telegram-bot
+
 requests
-flask
+aiogram
+requests
+python-dotenv
+aiohttp

@@ -1,14 +1,85 @@
 import os
-import requests
 from flask import Flask
-from threading import Thread
+import requests
+import asyncio
+from dotenv import load_dotenv
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+load_dotenv()
 
-# ===== CONFIG =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+
+# ===== MENU =====
+def main_menu():
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🤖 Chat AI", callback_data="chat")],
+        [InlineKeyboardButton(text="🖼️ Tạo ảnh", callback_data="image")],
+        [InlineKeyboardButton(text="🎬 Tạo video", callback_data="video")]
+    ])
+    return kb
+
+# ===== START =====
+@dp.message(commands=["start"])
+async def start(message: types.Message):
+    await message.answer("🚀 Bot AI đã sẵn sàng!", reply_markup=main_menu())
+
+# ===== CALLBACK =====
+user_mode = {}
+
+@dp.callback_query()
+async def handle_callback(call: types.CallbackQuery):
+    user_mode[call.from_user.id] = call.data
+    await call.message.answer(f"👉 Bạn chọn: {call.data}\nHãy nhập nội dung:")
+
+# ===== AI CHAT =====
+def chat_ai(prompt):
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "openrouter/auto",
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    res = requests.post(url, headers=headers, json=data)
+    return res.json()["choices"][0]["message"]["content"]
+
+# ===== IMAGE AI (free API demo) =====
+def generate_image(prompt):
+    return f"https://image.pollinations.ai/prompt/{prompt}"
+
+# ===== VIDEO AI (placeholder) =====
+def generate_video(prompt):
+    # bạn có thể thay bằng API thật sau
+    return f"https://dummyvideo.com/result?text={prompt}"
+
+# ===== HANDLE MESSAGE =====
+@dp.message()
+async def handle_message(message: types.Message):
+    mode = user_mode.get(message.from_user.id)
+
+    if not mode:
+        await message.answer("❌ Hãy chọn chức năng trước!", reply_markup=main_menu())
+        return
+
+    if mode == "chat":
+        await message.answer("🤖 Đang suy nghĩ...")
+        reply = chat_ai(message.text)
+        await message.answer(reply)
+
+    elif mode == "image":
+        img_url = generate_image(message.text)
+        await message.answer_photo(img_url)
+
+    elif mode == "video":
+        vid_url = generate_video(message.text)
+        await message.answer(f"🎬 Video của bạn:\n{vid_url}")
 # ===== KEEP ALIVE WEB (Render cần port) =====
 app_web = Flask(__name__)
 
@@ -23,65 +94,9 @@ def run_web():
 def keep_alive():
     t = Thread(target=run_web)
     t.start()
-
-# ===== FACEBOOK INFO =====
-def get_facebook_info(url):
-    try:
-        api = f"https://id.traodoisub.com/api.php?link={url}"
-        res = requests.get(api, timeout=10).json()
-
-        return {
-            "uid": res.get("id"),
-            "name": res.get("name"),
-            "avatar": res.get("avatar")
-        }
-    except:
-        return None
-
-# ===== TELEGRAM HANDLERS =====
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🤖 Gửi link Facebook để lấy UID + thông tin public"
-    )
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text.strip()
-
-    if "facebook.com" not in url:
-        await update.message.reply_text("❌ Link không hợp lệ")
-        return
-
-    await update.message.reply_text("⏳ Đang xử lý...")
-
-    data = get_facebook_info(url)
-
-    if not data or not data["uid"]:
-        await update.message.reply_text("❌ Không lấy được dữ liệu (có thể bị ẩn)")
-        return
-
-    msg = f"""
-👤 Tên: {data['name']}
-🆔 UID: {data['uid']}
-"""
-
-    try:
-        if data["avatar"]:
-            await update.message.reply_photo(photo=data["avatar"], caption=msg)
-        else:
-            await update.message.reply_text(msg)
-    except:
-        await update.message.reply_text(msg)
-
-# ===== MAIN =====
-def run_bot():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    print("🤖 Bot started...")
-    app.run_polling()
+# ===== RUN =====
+async def main():
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    keep_alive()
-    run_bot()
+    asyncio.run(main())
